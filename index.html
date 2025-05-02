@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JAN画像メーカー</title>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 2em; text-align: center; }
+    canvas { margin: 10px 0; }
+    input[type='file'] { margin-top: 1em; }
+  </style>
+</head>
+<body>
+  <h1>JAN画像メーカー</h1>
+  <input type="file" accept="image/*" onchange="handleImageUpload(event)" />
+  <p id="status"></p>
+  <div id="results"></div>
+  <script>
+    async function handleImageUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      document.getElementById("status").innerText = "読み取り中...";
+      document.getElementById("results").innerHTML = "";
+
+      const image = await createImageBitmap(file);
+      const canvas = document.createElement("canvas");
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(image, 0, 0);
+      const dataURL = canvas.toDataURL("image/png");
+
+      const { data: { text } } = await Tesseract.recognize(dataURL, "jpn+eng");
+      const janCodes = [...new Set(text.match(/\\b\\d{13}\\b/g))];
+      if (!janCodes || janCodes.length === 0) {
+        document.getElementById("status").innerText = "JANコードが見つかりませんでした。";
+        return;
+      }
+      document.getElementById("status").innerText = `${janCodes.length}件のJANコードを検出しました。`;
+      janCodes.forEach(code => {
+        const div = document.createElement("div");
+        const label = document.createElement("p");
+        label.innerText = `JAN: ${code}`;
+        const svg = document.createElement("svg");
+        JsBarcode(svg, code, { format: "EAN13", displayValue: true });
+        div.appendChild(label);
+        div.appendChild(svg);
+        document.getElementById("results").appendChild(div);
+      });
+    }
+  </script>
+</body>
+</html>
