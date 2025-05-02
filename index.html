@@ -1,54 +1,94 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>JAN画像メーカー</title>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+  <meta charset="UTF-8">
+  <title>JAN画像からバーコード生成</title>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4.0.2/dist/tesseract.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
   <style>
-    body { font-family: sans-serif; padding: 2em; text-align: center; }
-    canvas { margin: 10px 0; }
-    input[type='file'] { margin-top: 1em; }
+    body { font-family: sans-serif; text-align: center; margin-top: 50px; }
+    input, button { font-size: 1.2em; margin: 10px; }
+    svg { margin: 20px; }
+    img { max-width: 300px; margin-top: 20px; }
   </style>
 </head>
 <body>
-  <h1>JAN画像メーカー</h1>
-  <input type="file" accept="image/*" onchange="handleImageUpload(event)" />
-  <p id="status"></p>
+  <h1>画像からJANコードを読み取ってバーコード生成</h1>
+
+  <input type="file" accept="image/*" onchange="handleImage(this)">
+  <div id="preview"></div>
   <div id="results"></div>
+
   <script>
-    async function handleImageUpload(event) {
-      const file = event.target.files[0];
+    function handleImage(input) {
+      const file = input.files[0];
       if (!file) return;
-      document.getElementById("status").innerText = "読み取り中...";
-      document.getElementById("results").innerHTML = "";
 
-      const image = await createImageBitmap(file);
-      const canvas = document.createElement("canvas");
-      canvas.width = image.width;
-      canvas.height = image.height;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(image, 0, 0);
-      const dataURL = canvas.toDataURL("image/png");
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const img = new Image();
+        img.src = e.target.result;
+        img.onload = () => {
+          document.getElementById('preview').innerHTML = '';
+          document.getElementById('preview').appendChild(img);
+          extractTextFromImage(img);
+        };
+      };
+      reader.readAsDataURL(file);
+    }
 
-      const { data: { text } } = await Tesseract.recognize(dataURL, "jpn+eng");
-      const janCodes = [...new Set(text.match(/\\b\\d{13}\\b/g))];
-      if (!janCodes || janCodes.length === 0) {
-        document.getElementById("status").innerText = "JANコードが見つかりませんでした。";
+    async function extractTextFromImage(image) {
+      document.getElementById('results').innerHTML = '読み取り中...';
+
+      const { data: { text } } = await Tesseract.recognize(image, 'eng', {
+        tessedit_char_whitelist: '0123456789'
+      });
+
+      const janCodes = text.match(/\d{11,13}/g) || [];
+      const resultArea = document.getElementById('results');
+      resultArea.innerHTML = '';
+
+      if (janCodes.length === 0) {
+        resultArea.innerHTML = 'JANコードが見つかりませんでした。';
         return;
       }
-      document.getElementById("status").innerText = `${janCodes.length}件のJANコードを検出しました。`;
-      janCodes.forEach(code => {
-        const div = document.createElement("div");
-        const label = document.createElement("p");
-        label.innerText = `JAN: ${code}`;
-        const svg = document.createElement("svg");
-        JsBarcode(svg, code, { format: "EAN13", displayValue: true });
-        div.appendChild(label);
-        div.appendChild(svg);
-        document.getElementById("results").appendChild(div);
+
+      janCodes.forEach((code, index) => {
+        let fullJan = code;
+        if (code.length === 11) {
+          fullJan += calculateCheckDigit(code);
+        }
+
+        if (!/^\d{12,13}$/.test(fullJan)) return;
+
+        const container = document.createElement('div');
+        const barcode = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        barcode.id = "barcode" + index;
+
+        const label = document.createElement('p');
+        label.innerText = `JAN: ${fullJan}`;
+
+        container.appendChild(label);
+        container.appendChild(barcode);
+        resultArea.appendChild(container);
+
+        JsBarcode(barcode, fullJan, {
+          format: "ean13",
+          lineColor: "#000",
+          width: 2,
+          height: 100,
+          displayValue: true
+        });
       });
+    }
+
+    function calculateCheckDigit(code) {
+      let sum = 0;
+      for (let i = 0; i < code.length; i++) {
+        const n = parseInt(code[i]);
+        sum += i % 2 === 0 ? n : n * 3;
+      }
+      return (10 - (sum % 10)) % 10;
     }
   </script>
 </body>
